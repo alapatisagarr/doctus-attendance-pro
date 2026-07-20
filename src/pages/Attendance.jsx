@@ -5,6 +5,9 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { getAttendanceMetrics, getEmployeeName } from '../lib/data';
 import { deleteAttendanceEntry, fetchAllData, saveAttendanceEntry } from '../lib/firestoreService';
+import { validateAttendanceForm } from '../lib/validation';
+import { showSuccess, showError } from '../lib/toast';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const emptyAttendance = { employeeId: '', date: '', status: 'Present', checkIn: '', checkOut: '' };
 const statusOptions = ['Present', 'Half Day', 'Absent', 'Leave', 'Holiday', 'Weekly Off', 'Work From Home', 'Late'];
@@ -16,6 +19,8 @@ const Attendance = () => {
   const [filter, setFilter] = useState('All');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, entryId: null, employeeName: '' });
 
   useEffect(() => {
     const load = async () => {
@@ -24,6 +29,7 @@ const Attendance = () => {
         setData(result);
       } catch (error) {
         console.error(error);
+        showError('Failed to load attendance data');
       } finally {
         setLoading(false);
       }
@@ -66,30 +72,53 @@ const Attendance = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    const validationErrors = validateAttendanceForm(form);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      showError('Please fix all validation errors');
+      return;
+    }
+
+    setErrors({});
     setLoading(true);
     try {
       await saveAttendanceEntry({ ...form, id: form.id || `att-${Date.now()}` });
       const refreshed = await fetchAllData();
       setData(refreshed);
       setForm(emptyAttendance);
+      showSuccess('Attendance logged successfully');
     } catch (error) {
       console.error(error);
+      showError('Failed to save attendance: ' + (error.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDeleteClick = (id, employeeName) => {
+    setDeleteConfirm({ isOpen: true, entryId: id, employeeName });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { entryId } = deleteConfirm;
+    setDeleteConfirm({ isOpen: false, entryId: null, employeeName: '' });
     setLoading(true);
     try {
-      await deleteAttendanceEntry(id);
+      await deleteAttendanceEntry(entryId);
       const refreshed = await fetchAllData();
       setData(refreshed);
+      showSuccess('Attendance record deleted successfully');
     } catch (error) {
       console.error(error);
+      showError('Failed to delete attendance: ' + (error.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirm({ isOpen: false, entryId: null, employeeName: '' });
   };
 
   const handleExportExcel = () => {
@@ -97,6 +126,7 @@ const Attendance = () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance');
     XLSX.writeFile(workbook, 'attendance.xlsx');
+    showSuccess('Attendance exported to Excel');
   };
 
   const handleExportPdf = () => {
@@ -104,6 +134,7 @@ const Attendance = () => {
     doc.text('Attendance Report', 14, 14);
     autoTable(doc, { head: [['Employee', 'Date', 'Status']], body: filteredAttendance.map((entry) => [getEmployeeName(entry.employeeId, data.employees), entry.date, entry.status]) });
     doc.save('attendance.pdf');
+    showSuccess('Attendance exported to PDF');
   };
 
   return (
@@ -137,10 +168,12 @@ const Attendance = () => {
                 <option value="">Select employee</option>
                 {data.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </select>
+              {errors.employeeId && <p className="mt-1 text-xs text-red-600">{errors.employeeId}</p>}
             </label>
             <label className="block rounded-[18px] border border-[#FFD400]/20 bg-[#FFF9E6] p-3 text-sm text-slate-600">
               <span className="mb-2 block font-semibold">Date</span>
               <input className="w-full bg-transparent outline-none" type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
+              {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date}</p>}
             </label>
             <label className="block rounded-[18px] border border-[#FFD400]/20 bg-[#FFF9E6] p-3 text-sm text-slate-600">
               <span className="mb-2 block font-semibold">Status</span>
@@ -157,7 +190,7 @@ const Attendance = () => {
               <input className="w-full bg-transparent outline-none" placeholder="Check-out time" value={form.checkOut} onChange={(event) => setForm({ ...form, checkOut: event.target.value })} />
             </label>
           </div>
-          <button className="mt-4 flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,_#E60023,_#FF7A00_60%,_#FFD400)] px-4 py-3 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5" type="submit" disabled={loading}>
+          <button className="mt-4 flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,_#E60023,_#FF7A00_60%,_#FFD400)] px-4 py-3 text-sm font-semibold text-white transition duration-200 disabled:opacity-50 hover:shadow-lg" type="submit" disabled={loading}>
             <Plus size={16} /> Save attendance
           </button>
         </form>
@@ -186,32 +219,49 @@ const Attendance = () => {
           <div className="mb-6 grid grid-cols-7 gap-2 text-center text-xs text-slate-500">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <div key={day}>{day}</div>)}
             {calendarDays.map((day, index) => (
-              <div key={day ? `${day.dateKey}-${index}` : `empty-${index}`} className={`flex h-14 flex-col items-center justify-center rounded-2xl border text-xs ${day ? 'border-[#FFD400]/20 bg-[#FFF9E6] text-slate-700' : 'border-transparent'}`}>
+              <div key={day ? `${day.dateKey}-${index}` : `empty-${index}`} className={`flex h-14 flex-col items-center justify-center rounded-2xl border text-xs ${day ? 'border-[#FFD400]/20 bg-[#FFF9E6]' : 'bg-transparent'}`}>
                 {day ? <><span>{day.day}</span><span className="mt-1 text-[10px] text-[#E60023]">{day.status}</span></> : null}
               </div>
             ))}
           </div>
 
           <div className="space-y-3">
-            {filteredAttendance.map((entry) => (
-              <div key={entry.id} className="flex flex-col gap-3 rounded-[20px] border border-[#FFD400]/20 bg-[#FFF9E6] p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-2xl bg-[#EAF2FF] p-3 text-[#2563EB]"><CalendarDays size={18} /></div>
-                  <div>
-                    <p className="font-semibold text-slate-900">{getEmployeeName(entry.employeeId, data.employees)}</p>
-                    <p className="text-sm text-slate-600">{entry.date}</p>
+            {filteredAttendance.length > 0 ? (
+              filteredAttendance.map((entry) => (
+                <div key={entry.id} className="flex flex-col gap-3 rounded-[20px] border border-[#FFD400]/20 bg-[#FFF9E6] p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-[#EAF2FF] p-3 text-[#2563EB]"><CalendarDays size={18} /></div>
+                    <div>
+                      <p className="font-semibold text-slate-900">{getEmployeeName(entry.employeeId, data.employees)}</p>
+                      <p className="text-sm text-slate-600">{entry.date}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">{entry.status}</span>
+                    <span className="text-sm text-slate-600">{entry.checkIn || '—'} → {entry.checkOut || '—'}</span>
+                    <button className="rounded-xl border border-[#E60023]/20 bg-white px-3 py-2 text-sm font-semibold text-[#E60023]" onClick={() => handleDeleteClick(entry.id, getEmployeeName(entry.employeeId, data.employees))}><Trash2 size={16} /></button>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">{entry.status}</span>
-                  <span className="text-sm text-slate-600">{entry.checkIn || '—'} → {entry.checkOut || '—'}</span>
-                  <button className="rounded-xl border border-[#E60023]/20 bg-white px-3 py-2 text-sm font-semibold text-[#E60023]" onClick={() => handleDelete(entry.id)}><Trash2 size={16} /></button>
-                </div>
+              ))
+            ) : (
+              <div className="rounded-[20px] border border-[#FFD400]/20 bg-[#FFF9E6] p-6 text-center text-slate-600">
+                No attendance records found
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        title="Delete Attendance Record"
+        message={`Are you sure you want to delete the attendance record for ${deleteConfirm.employeeName}?`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDangerous={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   );
 };
