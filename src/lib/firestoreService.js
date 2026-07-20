@@ -42,6 +42,18 @@ export const saveEmployee = async (employee) => {
 
 export const deleteEmployee = async (id) => {
   await deleteCollectionDoc('employees', id);
+  // Delete related attendance records
+  const attendance = await getCollectionDocs('attendance');
+  const related = attendance.filter(a => a.employeeId === id);
+  for (const record of related) {
+    await deleteCollectionDoc('attendance', record.id);
+  }
+  // Delete related leave records
+  const leaves = await getCollectionDocs('leaves');
+  const relatedLeaves = leaves.filter(l => l.employeeId === id);
+  for (const leave of relatedLeaves) {
+    await deleteCollectionDoc('leaves', leave.id);
+  }
 };
 
 export const saveAttendanceEntry = async (entry) => {
@@ -68,6 +80,10 @@ export const saveLeaveRequest = async (leave) => {
   return created;
 };
 
+export const deleteLeaveRequest = async (id) => {
+  await deleteCollectionDoc('leaves', id);
+};
+
 export const saveHoliday = async (holiday) => {
   if (holiday.id) {
     await updateCollectionDoc('holidays', holiday.id, holiday);
@@ -76,6 +92,10 @@ export const saveHoliday = async (holiday) => {
 
   const created = await addCollectionDoc('holidays', holiday);
   return created;
+};
+
+export const deleteHoliday = async (id) => {
+  await deleteCollectionDoc('holidays', id);
 };
 
 export const saveSettings = async (settings) => {
