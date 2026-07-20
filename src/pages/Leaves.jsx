@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BellRing, Check, Plus, Search, X } from 'lucide-react';
-import { fetchAllData, saveLeaveRequest, deleteLeaveRequest } from '../lib/firestoreService';
+import { fetchAllData, saveLeaveRequest } from '../lib/firestoreService';
 import { getLeaveBalance } from '../lib/data';
 import { validateLeaveForm } from '../lib/validation';
 import { showSuccess, showError } from '../lib/toast';
@@ -90,7 +90,7 @@ const Leaves = () => {
     setDeleteConfirm({ isOpen: false, leaveId: null, employeeName: '' });
     setLoading(true);
     try {
-      await deleteLeaveRequest(leaveId);
+      await saveLeaveRequest({ ...data.leaves.find(l => l.id === leaveId), deleted: true });
       const refreshed = await fetchAllData();
       setData(refreshed);
       showSuccess('Leave request deleted successfully');

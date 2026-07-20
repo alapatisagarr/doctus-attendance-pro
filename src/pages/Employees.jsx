@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PencilLine, Plus, Search, Trash2, UsersRound } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { deleteEmployee, fetchAllData, saveEmployee } from '../lib/firestoreService';
 import { generateEmployeeCode, getEmployeeAvatar } from '../lib/data';
 import { validateEmployeeForm } from '../lib/validation';
@@ -72,7 +71,7 @@ const Employees = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    
+
     const validationErrors = validateEmployeeForm(form);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
